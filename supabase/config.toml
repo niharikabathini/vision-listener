@@ -1,0 +1,4 @@
+project_id = "biwddpfowkfsprecfhyu"
+
+[functions.generate-caption]
+verify_jwt = false
