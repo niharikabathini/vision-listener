@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { Upload, Image as ImageIcon, X } from 'lucide-react';
+import React, { useCallback, useState, useRef } from 'react';
+import { Upload, Image as ImageIcon, X, Camera, SwitchCamera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -17,6 +17,11 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   onClear,
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -53,6 +58,130 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       processFile(file);
     }
   };
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: facingMode,
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      });
+      
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      setIsCameraOpen(true);
+    } catch (error) {
+      console.error('Error accessing camera:', error);
+      // Fallback to file input if camera not available
+      document.getElementById('file-input')?.click();
+    }
+  };
+
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setIsCameraOpen(false);
+  }, []);
+
+  const switchCamera = async () => {
+    const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(newFacingMode);
+    
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+    }
+    
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: newFacingMode,
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      });
+      
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (error) {
+      console.error('Error switching camera:', error);
+    }
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(video, 0, 0);
+      const imageData = canvas.toDataURL('image/jpeg', 0.9);
+      stopCamera();
+      onImageSelect(imageData);
+    }
+  };
+
+  // Camera view
+  if (isCameraOpen) {
+    return (
+      <div className="relative rounded-2xl overflow-hidden border-2 border-primary bg-card animate-scale-in">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="w-full h-auto max-h-[400px] object-cover"
+          aria-label="Camera preview"
+        />
+        <canvas ref={canvasRef} className="hidden" />
+        
+        {/* Camera controls */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background/90 to-transparent">
+          <div className="flex items-center justify-center gap-4">
+            <Button
+              variant="secondary"
+              size="icon-lg"
+              onClick={stopCamera}
+              aria-label="Close camera"
+            >
+              <X className="h-6 w-6" />
+            </Button>
+            
+            <Button
+              variant="hero"
+              size="xl"
+              onClick={capturePhoto}
+              className="rounded-full w-20 h-20"
+              aria-label="Take photo"
+            >
+              <Camera className="h-8 w-8" />
+            </Button>
+            
+            <Button
+              variant="secondary"
+              size="icon-lg"
+              onClick={switchCamera}
+              aria-label="Switch camera"
+            >
+              <SwitchCamera className="h-6 w-6" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (currentImage) {
     return (
@@ -117,22 +246,34 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
         
         <div className="space-y-2">
           <p className="text-accessible-lg font-semibold text-foreground">
-            {isDragOver ? 'Drop your image here' : 'Drag & drop an image'}
+            {isDragOver ? 'Drop your image here' : 'Capture or upload an image'}
           </p>
           <p className="text-muted-foreground">
-            or click the button below to browse
+            Use your camera or choose a file from your device
           </p>
         </div>
         
-        <Button
-          variant="hero"
-          size="lg"
-          onClick={() => document.getElementById('file-input')?.click()}
-          className="mt-2"
-        >
-          <Upload className="mr-2" aria-hidden="true" />
-          Choose Image
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-4 mt-2">
+          <Button
+            variant="hero"
+            size="lg"
+            onClick={startCamera}
+            aria-label="Open camera to take a photo"
+          >
+            <Camera className="mr-2" aria-hidden="true" />
+            Take Photo
+          </Button>
+          
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={() => document.getElementById('file-input')?.click()}
+            aria-label="Choose an image file from your device"
+          >
+            <Upload className="mr-2" aria-hidden="true" />
+            Choose File
+          </Button>
+        </div>
         
         <p className="text-sm text-muted-foreground">
           Supports JPG, PNG, GIF, WebP
