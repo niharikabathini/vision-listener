@@ -1,7 +1,8 @@
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { Upload, Image as ImageIcon, X, Camera, SwitchCamera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 
 interface ImageUploaderProps {
   onImageSelect: (imageData: string) => void;
@@ -18,6 +19,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isCameraReady, setIsCameraReady] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -47,7 +49,22 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     const reader = new FileReader();
     reader.onload = (e) => {
       const result = e.target?.result as string;
-      onImageSelect(result);
+      if (result && result.length > 100) {
+        onImageSelect(result);
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to read image file. Please try again.",
+          variant: "destructive",
+        });
+      }
+    };
+    reader.onerror = () => {
+      toast({
+        title: "Error",
+        description: "Failed to read image file.",
+        variant: "destructive",
+      });
     };
     reader.readAsDataURL(file);
   };
@@ -61,6 +78,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
 
   const startCamera = async () => {
     try {
+      setIsCameraReady(false);
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: facingMode,
@@ -76,10 +94,19 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       setIsCameraOpen(true);
     } catch (error) {
       console.error('Error accessing camera:', error);
+      toast({
+        title: "Camera not available",
+        description: "Please use the file upload option instead.",
+        variant: "destructive",
+      });
       // Fallback to file input if camera not available
       document.getElementById('file-input')?.click();
     }
   };
+
+  const handleVideoReady = useCallback(() => {
+    setIsCameraReady(true);
+  }, []);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -87,11 +114,13 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       streamRef.current = null;
     }
     setIsCameraOpen(false);
+    setIsCameraReady(false);
   }, []);
 
   const switchCamera = async () => {
     const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
     setFacingMode(newFacingMode);
+    setIsCameraReady(false);
     
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
@@ -112,14 +141,36 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       }
     } catch (error) {
       console.error('Error switching camera:', error);
+      toast({
+        title: "Error",
+        description: "Could not switch camera.",
+        variant: "destructive",
+      });
     }
   };
 
   const capturePhoto = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current) {
+      toast({
+        title: "Error",
+        description: "Camera not ready. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
     
     const video = videoRef.current;
     const canvas = canvasRef.current;
+    
+    // Check if video has valid dimensions
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      toast({
+        title: "Error",
+        description: "Camera is still loading. Please wait a moment.",
+        variant: "destructive",
+      });
+      return;
+    }
     
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
@@ -128,10 +179,29 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     if (ctx) {
       ctx.drawImage(video, 0, 0);
       const imageData = canvas.toDataURL('image/jpeg', 0.9);
-      stopCamera();
-      onImageSelect(imageData);
+      
+      // Validate the image data
+      if (imageData && imageData.length > 100 && imageData.startsWith('data:image/')) {
+        stopCamera();
+        onImageSelect(imageData);
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to capture photo. Please try again.",
+          variant: "destructive",
+        });
+      }
     }
   };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
 
   // Camera view
   if (isCameraOpen) {
@@ -142,10 +212,18 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
           autoPlay
           playsInline
           muted
+          onCanPlay={handleVideoReady}
           className="w-full h-auto max-h-[400px] object-cover"
           aria-label="Camera preview"
         />
         <canvas ref={canvasRef} className="hidden" />
+        
+        {/* Loading overlay */}
+        {!isCameraReady && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/80">
+            <p className="text-muted-foreground">Starting camera...</p>
+          </div>
+        )}
         
         {/* Camera controls */}
         <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background/90 to-transparent">
@@ -163,6 +241,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
               variant="hero"
               size="xl"
               onClick={capturePhoto}
+              disabled={!isCameraReady}
               className="rounded-full w-20 h-20"
               aria-label="Take photo"
             >
