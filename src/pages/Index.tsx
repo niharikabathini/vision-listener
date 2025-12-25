@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { Link } from 'react-router-dom';
 import { History, Save } from 'lucide-react';
@@ -8,10 +8,8 @@ import { CaptionDisplay } from '@/components/CaptionDisplay';
 import { AccessibilityInfo } from '@/components/AccessibilityInfo';
 import { LanguageSelector } from '@/components/LanguageSelector';
 import { SafetyAlerts } from '@/components/SafetyAlerts';
-import { VoiceCommandButton } from '@/components/VoiceCommandButton';
 import { useTextToSpeech } from '@/hooks/useTextToSpeech';
 import { useImageCaption } from '@/hooks/useImageCaption';
-import { useVoiceCommands } from '@/hooks/useVoiceCommands';
 import { useCaptionHistory } from '@/hooks/useCaptionHistory';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
@@ -19,35 +17,35 @@ import { toast } from '@/hooks/use-toast';
 const Index = () => {
   const [currentImage, setCurrentImage] = useState<string | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState('en');
-  const { speak, stop, isSpeaking, isSupported } = useTextToSpeech();
+  const { speak, stop, isSpeaking, isSupported, setLanguage } = useTextToSpeech(selectedLanguage);
   const { caption, translatedCaption, safetyAlerts, isLoading, generateCaption, clearCaption } = useImageCaption();
   const { addToHistory } = useCaptionHistory();
 
-  // Voice command handlers
-  const handleVoiceCapture = useCallback(() => {
-    // Click the file input as a fallback
-    document.getElementById('file-input')?.click();
-  }, []);
+  const handleImageSelect = useCallback(async (imageData: string) => {
+    setCurrentImage(imageData);
+    stop();
+    await generateCaption(imageData, selectedLanguage);
+  }, [generateCaption, stop, selectedLanguage]);
 
-  const handleVoiceDescribe = useCallback(() => {
-    const textToSpeak = translatedCaption || caption;
-    if (textToSpeak) {
-      // Prepend safety alerts if any
-      if (safetyAlerts.length > 0) {
-        speak(`Warning! ${safetyAlerts.join('. ')}. ${textToSpeak}`);
-      } else {
-        speak(textToSpeak);
-      }
-    }
-  }, [caption, translatedCaption, safetyAlerts, speak]);
-
-  const handleVoiceClear = useCallback(() => {
+  const handleClear = useCallback(() => {
     setCurrentImage(null);
     clearCaption();
     stop();
   }, [clearCaption, stop]);
 
-  const handleVoiceSave = useCallback(() => {
+  const handleSpeak = useCallback(() => {
+    const textToSpeak = translatedCaption || caption;
+    if (textToSpeak) {
+      // Prepend safety alerts if any
+      if (safetyAlerts.length > 0) {
+        speak(`Warning! ${safetyAlerts.join('. ')}. ${textToSpeak}`, selectedLanguage);
+      } else {
+        speak(textToSpeak, selectedLanguage);
+      }
+    }
+  }, [caption, translatedCaption, safetyAlerts, speak, selectedLanguage]);
+
+  const handleSave = useCallback(() => {
     if (currentImage && caption) {
       addToHistory({
         imageData: currentImage,
@@ -69,67 +67,30 @@ const Index = () => {
     }
   }, [currentImage, caption, translatedCaption, selectedLanguage, safetyAlerts, addToHistory]);
 
-  const {
-    isListening,
-    startListening,
-    stopListening,
-    isSupported: voiceCommandsSupported,
-    lastCommand,
-  } = useVoiceCommands({
-    onCapture: handleVoiceCapture,
-    onDescribeAgain: handleVoiceDescribe,
-    onClear: handleVoiceClear,
-    onSave: handleVoiceSave,
-    onStop: stop,
-  });
-
-  const handleImageSelect = useCallback(async (imageData: string) => {
-    setCurrentImage(imageData);
-    stop();
-    await generateCaption(imageData, selectedLanguage);
-  }, [generateCaption, stop, selectedLanguage]);
-
-  const handleClear = useCallback(() => {
-    setCurrentImage(null);
-    clearCaption();
-    stop();
-  }, [clearCaption, stop]);
-
-  const handleSpeak = useCallback(() => {
-    const textToSpeak = translatedCaption || caption;
-    if (textToSpeak) {
-      // Prepend safety alerts if any
-      if (safetyAlerts.length > 0) {
-        speak(`Warning! ${safetyAlerts.join('. ')}. ${textToSpeak}`);
-      } else {
-        speak(textToSpeak);
-      }
-    }
-  }, [caption, translatedCaption, safetyAlerts, speak]);
-
   const handleLanguageChange = useCallback(async (newLanguage: string) => {
     setSelectedLanguage(newLanguage);
+    setLanguage(newLanguage);
     // Re-generate caption if we already have an image
     if (currentImage && !isLoading) {
       await generateCaption(currentImage, newLanguage);
     }
-  }, [currentImage, isLoading, generateCaption]);
+  }, [currentImage, isLoading, generateCaption, setLanguage]);
 
-  // Auto-read caption when generated (for screen reader users)
+  // Auto-read caption when generated in the selected language
   useEffect(() => {
     if (caption && isSupported && !isLoading) {
       const textToSpeak = translatedCaption || caption;
       const timer = setTimeout(() => {
         // Speak safety alerts first if any
         if (safetyAlerts.length > 0) {
-          speak(`Warning! ${safetyAlerts.join('. ')}. ${textToSpeak}`);
+          speak(`Warning! ${safetyAlerts.join('. ')}. ${textToSpeak}`, selectedLanguage);
         } else {
-          speak(textToSpeak);
+          speak(textToSpeak, selectedLanguage);
         }
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [caption, translatedCaption, safetyAlerts, isSupported, isLoading, speak]);
+  }, [caption, translatedCaption, safetyAlerts, isSupported, isLoading, speak, selectedLanguage]);
 
   return (
     <>
@@ -137,7 +98,7 @@ const Index = () => {
         <title>See Through Sound - AI Image Captioning for Visually Impaired</title>
         <meta 
           name="description" 
-          content="AI-powered image caption generator with text-to-speech, safety alerts, and multi-language support. Designed for visually impaired users." 
+          content="AI-powered image caption generator with text-to-speech in 15+ languages, safety alerts, and accessibility features. Designed for visually impaired users." 
         />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Helmet>
@@ -182,7 +143,7 @@ const Index = () => {
 
             {/* Safety Alerts */}
             {safetyAlerts.length > 0 && !isLoading && (
-              <SafetyAlerts alerts={safetyAlerts} onSpeak={speak} />
+              <SafetyAlerts alerts={safetyAlerts} onSpeak={(text) => speak(text, selectedLanguage)} />
             )}
 
             {/* Caption Display */}
@@ -200,7 +161,7 @@ const Index = () => {
                 <Button
                   variant="secondary"
                   size="lg"
-                  onClick={handleVoiceSave}
+                  onClick={handleSave}
                   aria-label="Save caption to history"
                 >
                   <Save className="h-5 w-5 mr-2" />
@@ -217,19 +178,11 @@ const Index = () => {
               Powered by AI vision technology. Designed with accessibility in mind.
             </p>
             <p className="text-muted-foreground text-xs mt-2">
-              Supports {15}+ languages | Voice commands | Safety detection
+              Supports 15+ languages with native speech | Safety detection
             </p>
           </footer>
         </main>
       </div>
-
-      {/* Voice Command Button */}
-      <VoiceCommandButton
-        isListening={isListening}
-        isSupported={voiceCommandsSupported}
-        onToggle={isListening ? stopListening : startListening}
-        lastCommand={lastCommand}
-      />
     </>
   );
 };
