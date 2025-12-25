@@ -5,14 +5,31 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English',
+  hi: 'Hindi',
+  te: 'Telugu',
+  ta: 'Tamil',
+  bn: 'Bengali',
+  mr: 'Marathi',
+  gu: 'Gujarati',
+  kn: 'Kannada',
+  ml: 'Malayalam',
+  pa: 'Punjabi',
+  es: 'Spanish',
+  fr: 'French',
+  de: 'German',
+  zh: 'Chinese',
+  ar: 'Arabic',
+};
+
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { imageData } = await req.json();
+    const { imageData, language = 'en' } = await req.json();
 
     if (!imageData) {
       console.error('No image data provided');
@@ -31,9 +48,57 @@ serve(async (req) => {
       );
     }
 
-    console.log('Generating caption for image...');
+    console.log('Generating caption for image in language:', language);
 
-    // Use Lovable AI Gateway with Gemini for vision capabilities
+    const languageName = LANGUAGE_NAMES[language] || 'English';
+    const needsTranslation = language !== 'en';
+
+    // Build the system prompt with safety detection and optional translation
+    const systemPrompt = `You are an expert image description assistant designed to help visually impaired people understand images. 
+
+Your task is to provide clear, detailed, and accessible descriptions of images. You MUST respond with a valid JSON object.
+
+CRITICAL SAFETY DETECTION:
+First, analyze the image for any potential safety hazards. Look for:
+- Vehicles (cars, motorcycles, bicycles, buses, trucks) - especially if they appear to be moving or nearby
+- Stairs, steps, or elevation changes
+- Fire, smoke, or hazards
+- Traffic signals, crosswalks, or road conditions
+- Obstacles in the path (poles, objects on ground, construction)
+- Water bodies, edges, or drop-offs
+- People or animals that might be approaching
+
+DESCRIPTION GUIDELINES:
+1. The main subject and action happening in the image
+2. Important objects, people, and their relationships
+3. Colors, lighting, and atmosphere when relevant
+4. Spatial relationships (what's in front, behind, left, right)
+5. Any text visible in the image
+6. The overall scene context (indoor/outdoor, time of day, weather if visible)
+
+Writing style:
+- Use clear, simple language that's easy to understand when read aloud
+- Be descriptive but concise (2-4 sentences for most images)
+- Start with the most important elements
+- Avoid technical photography terms
+- Describe emotions and expressions when people are present
+- Be objective and accurate
+
+${needsTranslation ? `IMPORTANT: Provide the translated description in ${languageName} language.` : ''}
+
+Respond ONLY with a JSON object in this exact format:
+{
+  "caption": "The detailed description of the image in English",
+  ${needsTranslation ? `"translatedCaption": "The description translated to ${languageName}",` : ''}
+  "safetyAlerts": ["Array of safety warnings if any hazards detected, empty array if none"]
+}
+
+Safety alert examples:
+- "Warning: A car is visible nearby"
+- "Caution: Stairs detected ahead"
+- "Alert: Vehicle approaching from the right"
+- "Notice: Uneven surface or obstacle detected"`;
+
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -45,32 +110,14 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: `You are an expert image description assistant designed to help visually impaired people understand images. 
-
-Your task is to provide clear, detailed, and accessible descriptions of images. Focus on:
-1. The main subject and action happening in the image
-2. Important objects, people, and their relationships
-3. Colors, lighting, and atmosphere when relevant
-4. Spatial relationships (what's in front, behind, left, right)
-5. Any text visible in the image
-6. The overall scene context (indoor/outdoor, time of day, weather if visible)
-
-Guidelines:
-- Use clear, simple language that's easy to understand when read aloud
-- Be descriptive but concise (2-4 sentences for most images)
-- Start with the most important elements
-- Avoid technical photography terms
-- Describe emotions and expressions when people are present
-- Be objective and accurate - don't make assumptions about things not visible
-
-Your description will be read aloud via text-to-speech, so write in a way that flows naturally when spoken.`
+            content: systemPrompt
           },
           {
             role: 'user',
             content: [
               {
                 type: 'text',
-                text: 'Please describe this image in detail for someone who cannot see it. Focus on what would be most helpful for a visually impaired person to understand the scene.'
+                text: 'Analyze this image for a visually impaired person. Detect any safety hazards first, then provide a detailed description. Respond with JSON only.'
               },
               {
                 type: 'image_url',
@@ -109,22 +156,47 @@ Your description will be read aloud via text-to-speech, so write in a way that f
     }
 
     const data = await response.json();
-    const caption = data.choices?.[0]?.message?.content;
+    let content = data.choices?.[0]?.message?.content;
 
-    if (!caption) {
-      console.error('No caption in response:', data);
+    if (!content) {
+      console.error('No content in response:', data);
       return new Response(
         JSON.stringify({ error: 'Failed to generate caption' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Caption generated successfully');
+    // Parse the JSON response
+    try {
+      // Clean up the content - remove markdown code blocks if present
+      content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      
+      const parsed = JSON.parse(content);
+      
+      console.log('Caption generated successfully with safety analysis');
 
-    return new Response(
-      JSON.stringify({ caption }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      return new Response(
+        JSON.stringify({
+          caption: parsed.caption || content,
+          translatedCaption: parsed.translatedCaption || null,
+          safetyAlerts: parsed.safetyAlerts || [],
+          language: language,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    } catch (parseError) {
+      // If JSON parsing fails, return the raw content as caption
+      console.log('Failed to parse JSON, using raw content:', parseError);
+      return new Response(
+        JSON.stringify({
+          caption: content,
+          translatedCaption: null,
+          safetyAlerts: [],
+          language: language,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
   } catch (error) {
     console.error('Error in generate-caption function:', error);
