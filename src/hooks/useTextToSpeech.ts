@@ -90,30 +90,64 @@ export const useTextToSpeech = (initialLanguage: string = 'en'): UseTextToSpeech
     return null;
   }, [availableVoices]);
 
-  // Use ResponsiveVoice or native TTS
-  const speakWithAudio = useCallback((text: string, langCode: string) => {
-    // Use ResponsiveVoice.js for reliable multi-language TTS
-    const langMap: Record<string, string> = {
-      en: 'UK English Female',
-      hi: 'Hindi Female',
-      te: 'Telugu Female',
+  // ResponsiveVoice (script loaded in index.html) as fallback
+  const speakWithResponsiveVoice = useCallback((text: string, langCode: string): boolean => {
+    const rv = (window as any).responsiveVoice;
+    if (!rv || typeof rv.speak !== 'function') return false;
+
+    // Prefer Telugu/Hindi-specific voices when available
+    const candidates: Record<string, string[]> = {
+      en: ['UK English Female', 'US English Female'],
+      hi: ['Hindi Female', 'Hindi Male'],
+      te: ['Telugu Female', 'Telugu Male'],
     };
 
-    const voiceName = langMap[langCode] || 'UK English Female';
-    
-    // Check if ResponsiveVoice is available (loaded via script)
-    if ((window as any).responsiveVoice) {
+    const candidateVoices = candidates[langCode] || candidates.en;
+
+    try {
+      if (typeof rv.voiceSupport === 'function' && !rv.voiceSupport()) {
+        return false;
+      }
+
+      // If ResponsiveVoice exposes voice list, only pick names that exist.
+      const rawVoices: any[] = typeof rv.getVoices === 'function' ? rv.getVoices() : [];
+      const availableNames = new Set(
+        rawVoices
+          .map((v) => (typeof v === 'string' ? v : v?.name || v?.voice))
+          .filter(Boolean)
+      );
+
+      const voiceName =
+        candidateVoices.find((v) => availableNames.size === 0 || availableNames.has(v)) ||
+        candidateVoices[0];
+
       console.log(`Using ResponsiveVoice: ${voiceName}`);
-      setIsSpeaking(true);
-      (window as any).responsiveVoice.speak(text, voiceName, {
+      rv.speak(text, voiceName, {
         rate: 0.9,
+        onstart: () => setIsSpeaking(true),
         onend: () => setIsSpeaking(false),
         onerror: () => setIsSpeaking(false),
       });
+
+      // Some environments expose RV but audio never starts; detect and allow fallback.
+      if (typeof rv.isPlaying === 'function') {
+        window.setTimeout(() => {
+          try {
+            if (!rv.isPlaying()) setIsSpeaking(false);
+          } catch {
+            // ignore
+          }
+        }, 350);
+      } else {
+        setIsSpeaking(true);
+      }
+
       return true;
+    } catch (err) {
+      console.warn('ResponsiveVoice failed:', err);
+      setIsSpeaking(false);
+      return false;
     }
-    
-    return false;
   }, []);
 
   const speak = useCallback((text: string, languageCode?: string) => {
@@ -130,14 +164,13 @@ export const useTextToSpeech = (initialLanguage: string = 'en'): UseTextToSpeech
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
-
-    // Try ResponsiveVoice first for Hindi/Telugu
-    if ((langToUse === 'hi' || langToUse === 'te') && speakWithAudio(text, langToUse)) {
-      return;
+    if ((window as any).responsiveVoice) {
+      (window as any).responsiveVoice.cancel?.();
     }
 
-    // Fall back to native Web Speech API
-    if ('speechSynthesis' in window) {
+    const speakNative = (): boolean => {
+      if (!('speechSynthesis' in window)) return false;
+
       const utterance = new SpeechSynthesisUtterance(text);
       utteranceRef.current = utterance;
 
@@ -153,9 +186,6 @@ export const useTextToSpeech = (initialLanguage: string = 'en'): UseTextToSpeech
         utterance.voice = voice;
         utterance.lang = voice.lang;
         console.log(`Using native voice: ${voice.name} (${voice.lang})`);
-      } else if (langToUse !== 'en') {
-        // For non-English without voice, try ResponsiveVoice
-        if (speakWithAudio(text, langToUse)) return;
       }
 
       utterance.onstart = () => setIsSpeaking(true);
@@ -163,18 +193,40 @@ export const useTextToSpeech = (initialLanguage: string = 'en'): UseTextToSpeech
       utterance.onerror = (e) => {
         console.error('Speech error:', e.error);
         setIsSpeaking(false);
-        // Try ResponsiveVoice as fallback on error
-        if (langToUse !== 'en') {
-          speakWithAudio(text, langToUse);
+        // Fallback for Hindi/Telugu if native fails
+        if ((langToUse === 'hi' || langToUse === 'te') && (window as any).responsiveVoice) {
+          speakWithResponsiveVoice(text, langToUse);
         }
       };
 
       window.speechSynthesis.speak(utterance);
-    } else {
-      // No native TTS, try ResponsiveVoice
-      speakWithAudio(text, langToUse);
+      return true;
+    };
+
+    // IMPORTANT: Telugu is often available as a native system voice on mobile.
+    // Prefer native first to avoid cases where ResponsiveVoice is present but doesn't play audio.
+    if (langToUse === 'te') {
+      if (speakNative()) return;
+      speakWithResponsiveVoice(text, 'te');
+      return;
     }
-  }, [currentLanguage, findVoiceForLanguage, speakWithAudio]);
+
+    // Hindi: prefer native when present, otherwise fallback to ResponsiveVoice.
+    if (langToUse === 'hi') {
+      const nativeVoice = findVoiceForLanguage('hi');
+      if (nativeVoice) {
+        speakNative();
+        return;
+      }
+      if (speakWithResponsiveVoice(text, 'hi')) return;
+      speakNative();
+      return;
+    }
+
+    // Default: native first, then ResponsiveVoice as last resort
+    if (speakNative()) return;
+    speakWithResponsiveVoice(text, langToUse);
+  }, [currentLanguage, findVoiceForLanguage, speakWithResponsiveVoice]);
 
   const stop = useCallback(() => {
     if (audioRef.current) {
