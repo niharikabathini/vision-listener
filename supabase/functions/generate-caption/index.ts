@@ -53,7 +53,7 @@ serve(async (req) => {
     const languageName = LANGUAGE_NAMES[language] || 'English';
     const needsTranslation = language !== 'en';
 
-    // Build the system prompt with safety detection and optional translation
+    // Build the system prompt with safety detection and translation
     const systemPrompt = `You are an expert image description assistant designed to help visually impaired people understand images. 
 
 Your task is to provide clear, detailed, and accessible descriptions of images. You MUST respond with a valid JSON object.
@@ -84,16 +84,22 @@ Writing style:
 - Describe emotions and expressions when people are present
 - Be objective and accurate
 
-${needsTranslation ? `IMPORTANT: Provide the translated description in ${languageName} language.` : ''}
+${needsTranslation ? `
+TRANSLATION REQUIREMENT - VERY IMPORTANT:
+You MUST provide a complete translation of the caption in ${languageName}. 
+The "translatedCaption" field is REQUIRED and must contain the FULL caption translated to ${languageName}.
+Do NOT leave translatedCaption empty or null. Translate the entire description accurately.
+Also translate any safety alerts to ${languageName}.
+` : ''}
 
 Respond ONLY with a JSON object in this exact format:
 {
   "caption": "The detailed description of the image in English",
-  ${needsTranslation ? `"translatedCaption": "The description translated to ${languageName}",` : ''}
-  "safetyAlerts": ["Array of safety warnings if any hazards detected, empty array if none"]
+  "translatedCaption": ${needsTranslation ? `"REQUIRED: Complete translation in ${languageName}"` : 'null'},
+  "safetyAlerts": ["Array of safety warnings${needsTranslation ? ` translated to ${languageName}` : ''}, empty array if none"]
 }
 
-Safety alert examples:
+Safety alert examples${needsTranslation ? ` (translate to ${languageName})` : ''}:
 - "Warning: A car is visible nearby"
 - "Caution: Stairs detected ahead"
 - "Alert: Vehicle approaching from the right"
