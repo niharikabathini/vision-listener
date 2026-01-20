@@ -9,18 +9,6 @@ const LANGUAGE_NAMES: Record<string, string> = {
   en: 'English',
   hi: 'Hindi',
   te: 'Telugu',
-  ta: 'Tamil',
-  bn: 'Bengali',
-  mr: 'Marathi',
-  gu: 'Gujarati',
-  kn: 'Kannada',
-  ml: 'Malayalam',
-  pa: 'Punjabi',
-  es: 'Spanish',
-  fr: 'French',
-  de: 'German',
-  zh: 'Chinese',
-  ar: 'Arabic',
 };
 
 serve(async (req) => {
