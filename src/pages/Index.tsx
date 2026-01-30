@@ -6,7 +6,7 @@ import { HeroSection } from '@/components/HeroSection';
 import { ImageUploader } from '@/components/ImageUploader';
 import { CaptionDisplay } from '@/components/CaptionDisplay';
 import { AccessibilityInfo } from '@/components/AccessibilityInfo';
-import { LanguageSelector } from '@/components/LanguageSelector';
+
 import { SafetyAlerts } from '@/components/SafetyAlerts';
 import { useTextToSpeech } from '@/hooks/useTextToSpeech';
 import { useImageCaption } from '@/hooks/useImageCaption';
@@ -16,7 +16,7 @@ import { toast } from '@/hooks/use-toast';
 
 const Index = () => {
   const [currentImage, setCurrentImage] = useState<string | null>(null);
-  const [selectedLanguage, setSelectedLanguage] = useState('en');
+  const selectedLanguage = 'en';
   const { speak, stop, isSpeaking, isSupported, setLanguage } = useTextToSpeech(selectedLanguage);
   const { caption, translatedCaption, safetyAlerts, isLoading, generateCaption, clearCaption } = useImageCaption();
   const { addToHistory } = useCaptionHistory();
@@ -67,14 +67,6 @@ const Index = () => {
     }
   }, [currentImage, caption, translatedCaption, selectedLanguage, safetyAlerts, addToHistory]);
 
-  const handleLanguageChange = useCallback(async (newLanguage: string) => {
-    setSelectedLanguage(newLanguage);
-    setLanguage(newLanguage);
-    // Re-generate caption if we already have an image
-    if (currentImage && !isLoading) {
-      await generateCaption(currentImage, newLanguage);
-    }
-  }, [currentImage, isLoading, generateCaption, setLanguage]);
 
   // Auto-read caption when generated in the selected language
   useEffect(() => {
@@ -117,10 +109,6 @@ const Index = () => {
           <div className="flex items-center justify-between mb-8">
             <HeroSection />
             <div className="flex items-center gap-2">
-              <LanguageSelector
-                selectedLanguage={selectedLanguage}
-                onLanguageChange={handleLanguageChange}
-              />
               <Link to="/history">
                 <Button variant="outline" size="lg" aria-label="View caption history">
                   <History className="h-5 w-5 mr-2" />

@@ -7,8 +7,6 @@ const corsHeaders = {
 
 const LANGUAGE_NAMES: Record<string, string> = {
   en: 'English',
-  hi: 'Hindi',
-  te: 'Telugu',
 };
 
 serve(async (req) => {
@@ -38,60 +36,32 @@ serve(async (req) => {
 
     console.log('Generating caption for image in language:', language);
 
-    const languageName = LANGUAGE_NAMES[language] || 'English';
-    const needsTranslation = language !== 'en';
+    // English only - no translation needed
 
-    // Build the system prompt with safety detection and translation
-    const systemPrompt = `You are an expert image description assistant designed to help visually impaired people understand images. 
+    // Build the system prompt with safety detection - BRIEF captions only
+    const systemPrompt = `You are an image description assistant for visually impaired people.
 
-Your task is to provide clear, detailed, and accessible descriptions of images. You MUST respond with a valid JSON object.
+CRITICAL: Keep descriptions VERY BRIEF - maximum 2-3 short sentences. Be concise.
 
-CRITICAL SAFETY DETECTION:
-First, analyze the image for any potential safety hazards. Look for:
-- Vehicles (cars, motorcycles, bicycles, buses, trucks) - especially if they appear to be moving or nearby
-- Stairs, steps, or elevation changes
-- Fire, smoke, or hazards
-- Traffic signals, crosswalks, or road conditions
-- Obstacles in the path (poles, objects on ground, construction)
-- Water bodies, edges, or drop-offs
-- People or animals that might be approaching
+SAFETY FIRST: Quickly check for hazards (vehicles, stairs, obstacles, fire, water).
 
-DESCRIPTION GUIDELINES:
-1. The main subject and action happening in the image
-2. Important objects, people, and their relationships
-3. Colors, lighting, and atmosphere when relevant
-4. Spatial relationships (what's in front, behind, left, right)
-5. Any text visible in the image
-6. The overall scene context (indoor/outdoor, time of day, weather if visible)
+DESCRIPTION RULES:
+- Maximum 2-3 sentences total
+- Start with the main subject
+- Mention only the most important details
+- Use simple, clear language
 
-Writing style:
-- Use clear, simple language that's easy to understand when read aloud
-- Be descriptive but concise (2-4 sentences for most images)
-- Start with the most important elements
-- Avoid technical photography terms
-- Describe emotions and expressions when people are present
-- Be objective and accurate
-
-${needsTranslation ? `
-TRANSLATION REQUIREMENT - VERY IMPORTANT:
-You MUST provide a complete translation of the caption in ${languageName}. 
-The "translatedCaption" field is REQUIRED and must contain the FULL caption translated to ${languageName}.
-Do NOT leave translatedCaption empty or null. Translate the entire description accurately.
-Also translate any safety alerts to ${languageName}.
-` : ''}
-
-Respond ONLY with a JSON object in this exact format:
+Respond ONLY with JSON:
 {
-  "caption": "The detailed description of the image in English",
-  "translatedCaption": ${needsTranslation ? `"REQUIRED: Complete translation in ${languageName}"` : 'null'},
-  "safetyAlerts": ["Array of safety warnings${needsTranslation ? ` translated to ${languageName}` : ''}, empty array if none"]
+  "caption": "Brief 2-3 sentence description here",
+  "translatedCaption": null,
+  "safetyAlerts": ["Short safety warning if any hazard detected"]
 }
 
-Safety alert examples${needsTranslation ? ` (translate to ${languageName})` : ''}:
-- "Warning: A car is visible nearby"
-- "Caution: Stairs detected ahead"
-- "Alert: Vehicle approaching from the right"
-- "Notice: Uneven surface or obstacle detected"`;
+Safety alert examples:
+- "Car nearby"
+- "Stairs ahead"
+- "Obstacle detected"`;
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
