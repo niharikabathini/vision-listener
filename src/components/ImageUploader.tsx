@@ -28,6 +28,14 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   const capturePhotoRef = useRef<() => void>(() => {});
   const startCameraRef = useRef<() => void>(() => {});
 
+  const voiceHandlers = useMemo(() => ({
+    onOpenCamera: () => startCameraRef.current(),
+    onUploadImage: () => document.getElementById('file-input')?.click(),
+    onCapturePhoto: () => capturePhotoRef.current(),
+  }), []);
+
+  const { isListening, lastCommand, toggleListening, isSupported: voiceSupported } = useVoiceCommands(voiceHandlers);
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(true);
@@ -202,14 +210,6 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     capturePhotoRef.current = capturePhoto;
     startCameraRef.current = startCamera;
   });
-
-  const voiceHandlers = useMemo(() => ({
-    onOpenCamera: () => startCameraRef.current(),
-    onUploadImage: () => document.getElementById('file-input')?.click(),
-    onCapturePhoto: () => capturePhotoRef.current(),
-  }), []);
-
-  const { isListening, lastCommand, toggleListening, isSupported: voiceSupported } = useVoiceCommands(voiceHandlers);
 
   // Cleanup on unmount
   useEffect(() => {
