@@ -1,8 +1,9 @@
-import React, { useCallback, useState, useRef, useEffect } from 'react';
-import { Upload, Image as ImageIcon, X, Camera, SwitchCamera } from 'lucide-react';
+import React, { useCallback, useState, useRef, useEffect, useMemo } from 'react';
+import { Upload, Image as ImageIcon, X, Camera, SwitchCamera, Mic, MicOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import { useVoiceCommands } from '@/hooks/useVoiceCommands';
 
 interface ImageUploaderProps {
   onImageSelect: (imageData: string) => void;
@@ -24,6 +25,8 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const capturePhotoRef = useRef<() => void>(() => {});
+  const startCameraRef = useRef<() => void>(() => {});
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -194,6 +197,20 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     }
   };
 
+  // Keep refs updated for voice commands
+  useEffect(() => {
+    capturePhotoRef.current = capturePhoto;
+    startCameraRef.current = startCamera;
+  });
+
+  const voiceHandlers = useMemo(() => ({
+    onOpenCamera: () => startCameraRef.current(),
+    onUploadImage: () => document.getElementById('file-input')?.click(),
+    onCapturePhoto: () => capturePhotoRef.current(),
+  }), []);
+
+  const { isListening, lastCommand, toggleListening, isSupported: voiceSupported } = useVoiceCommands(voiceHandlers);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -257,6 +274,11 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
               <SwitchCamera className="h-6 w-6" />
             </Button>
           </div>
+          {voiceSupported && (
+            <p className="text-center text-xs text-muted-foreground mt-2">
+              {isListening ? `🎤 Listening... Say "take photo" or "click"` : ''}
+            </p>
+          )}
         </div>
       </div>
     );
@@ -352,7 +374,31 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
             <Upload className="mr-2" aria-hidden="true" />
             Choose File
           </Button>
+
+          {voiceSupported && (
+            <Button
+              variant={isListening ? "default" : "outline"}
+              size="lg"
+              onClick={toggleListening}
+              aria-label={isListening ? "Stop voice commands" : "Start voice commands"}
+              className={isListening ? "animate-pulse" : ""}
+            >
+              {isListening ? <Mic className="mr-2" aria-hidden="true" /> : <MicOff className="mr-2" aria-hidden="true" />}
+              {isListening ? "Listening..." : "Voice Command"}
+            </Button>
+          )}
         </div>
+        
+        {isListening && (
+          <p className="text-sm text-primary font-medium">
+            🎤 Say: "Open camera", "Upload image", or "Take photo"
+          </p>
+        )}
+        {lastCommand && isListening && (
+          <p className="text-xs text-muted-foreground">
+            Heard: "{lastCommand}"
+          </p>
+        )}
         
         <p className="text-sm text-muted-foreground">
           Supports JPG, PNG, GIF, WebP
